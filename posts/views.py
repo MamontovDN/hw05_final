@@ -1,10 +1,10 @@
-from django.core.paginator import Paginator
-from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
+from django.core.paginator import Paginator
+from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.cache import cache_page
 
-from .models import Post, Group, Comment, Follow, User
-from .forms import PostForm, CommentForm
+from .forms import CommentForm, PostForm
+from .models import Comment, Follow, Group, Post, User
 
 
 def page_not_found(request, exception):
@@ -144,11 +144,9 @@ def add_comment(request, username, post_id):
 
 @login_required
 def follow_index(request):
-    follower = get_object_or_404(User, username=request.user.username)
-    subscribes = follower.follower.values_list('author')
-    posts = Post.objects.select_related('author', 'group'). \
-        filter(author__in=subscribes).prefetch_related('comments'). \
-        order_by('-pub_date').all()
+    posts = Post.objects.select_related('author', 'group').\
+        order_by('-pub_date').filter(author__following__user=request.user).\
+        prefetch_related('comments')
     paginator = Paginator(posts, 5)
     page_number = request.GET.get('page', 1)
     page = paginator.get_page(page_number)
@@ -158,20 +156,18 @@ def follow_index(request):
 
 @login_required
 def profile_follow(request, username):
-    follower = get_object_or_404(User, username=request.user.username)
+    follower = request.user
     author = get_object_or_404(User, username=username)
-    if not follower.follower.filter(author=author).exists() and \
-            follower != author:
-        Follow(user=follower, author=author).save()
+    if follower != author:
+        Follow.objects.get_or_create(user=follower, author=author)
     previous_path = request.META.get('HTTP_REFERER')
     return redirect(previous_path if previous_path else 'profile', username)
 
 
 @login_required
 def profile_unfollow(request, username):
-    follower = get_object_or_404(User, username=request.user.username)
+    follower = request.user
     author = get_object_or_404(User, username=username)
-    if follower.follower.filter(author=author).exists():
-        follower.follower.get(author=author).delete()
+    follower.follower.filter(author=author).delete()
     previous_path = request.META.get('HTTP_REFERER')
     return redirect(previous_path if previous_path else 'profile', username)

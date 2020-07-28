@@ -4,12 +4,12 @@
 {% block header %} Подписки {% endblock %}
 {% block content %}
     <div class="container">
-        {% include "menu.html" with index=True %}
+        {% include "includes/menu.html" with follow=True %}
             {% for post in page %}
-                {% include "post_item.html" with post=post %}
+                {% include "includes/post_item.html" with post=post %}
             {% endfor %}
     </div>
         {% if page.has_other_pages %}
-            {% include "paginator.html" with items=page paginator=paginator%}
+            {% include "includes/paginator.html" with items=page paginator=paginator%}
         {% endif %}
 {% endblock %}

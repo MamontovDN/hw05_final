@@ -1,11 +1,16 @@
+import io
 import os
 import re
-from time import sleep
+import tempfile
+
 from django.conf import settings as st
 from django.core.cache import cache
-from django.test import TestCase, Client
-from .models import User, Post, Group
+from django.core.files.base import ContentFile
+from django.test import Client, TestCase, override_settings
 from django.urls import reverse
+from PIL import Image
+
+from .models import Group, Post, User
 
 
 class TestStringMethods(TestCase):
@@ -236,13 +241,25 @@ class TestStringMethods(TestCase):
 
     def test_post_img(self):
         cache.clear()
-        path_img = os.path.join(st.BASE_DIR, 'media/posts/320.jpg')
-        with open(path_img, 'rb') as im:
-            response = self.client.post(
-                reverse('new_post'),
-                {'text': 'test_text', 'image': im},
-                follow=True
-            )
+        with tempfile.TemporaryDirectory() as temp_directory:
+            with override_settings(MEDIA_ROOT=temp_directory):
+                byte_image = io.BytesIO()
+                im = Image.new("RGB", size=(1000, 1000), color=(255, 0, 0, 0))
+                im.save(byte_image, format='jpeg')
+                byte_image.seek(0)
+                correct_image = ContentFile(byte_image.read(),
+                                            name='test.jpeg')
+                response = self.client.post(
+                    reverse('new_post'),
+                    {
+                        'text': 'img test',
+                        'group': '',
+                        'author': self.user,
+                        'image': correct_image
+                    },
+                    follow=True
+                )
+
         # check index
         html = response.content.decode()
         self.assertIsNotNone(re.search(r'img.*src=.*\.jpg', html),
@@ -263,16 +280,22 @@ class TestStringMethods(TestCase):
         self.assertIsNotNone(re.search(r'img.*src=.*\.jpg', html),
                              msg='Не найдена картинка на стр поста')
         # check wrong file extension
-        with open(os.path.join(st.BASE_DIR, 'requirements.txt'), 'rb') as im:
-            response = self.client.post(
-                reverse('new_post'),
-                {'text': 'wrong format', 'image': im},
-            )
-            wrong_format_post_id = Post.objects.latest('id').id
-            self.assertEqual(
-                post_id,
-                wrong_format_post_id,
-                msg='Добавлен пост с неверным форматом картинки')
+        with tempfile.TemporaryDirectory() as temp_directory:
+            with override_settings(MEDIA_ROOT=temp_directory):
+                byte_non_image = io.BytesIO()
+                byte_non_image.write('non image'.encode('utf-8'))
+                byte_non_image.seek(0)
+                non_correct_image = ContentFile(byte_non_image.read(),
+                                                name='test2.jpeg')
+                self.client.post(
+                    reverse('new_post'),
+                    {'text': 'wrong format', 'image': non_correct_image},
+                )
+        wrong_format_post_id = Post.objects.latest('id').id
+        self.assertEqual(
+            post_id,
+            wrong_format_post_id,
+            msg='Добавлен пост с неверным форматом картинки')
 
     def test_cache(self):
         self.client.post(reverse('new_post'),
@@ -289,8 +312,7 @@ class TestStringMethods(TestCase):
         self.assertContains(response, 'test cache',
                             msg_prefix='записи нет ')
 
-    def test_subscribe(self):
-        cache.clear()
+    def test_follow(self):
         # non-auth follow
         # ===============================================================
         response = self.client_not_auth.get(
@@ -324,8 +346,15 @@ class TestStringMethods(TestCase):
             'Отписаться',
             msg_prefix='Кнопка подписки не изменилась'
         )
+
+    def test_follow_index(self):
         # test follow-index
         # ===============================================================
+        cache.clear()
+        self.client.get(
+            reverse('profile_follow', args=[self.blogger.username]),
+            follow=True
+        )
         self.client_blogger.post(
             reverse('new_post'),
             {'text': 'for followers'},
@@ -343,6 +372,8 @@ class TestStringMethods(TestCase):
             'for followers',
             msg_prefix='текст в ленте не от автора из подписки'
         )
+
+    def test_unfollow(self):
         # non-auth unfollow
         # ===============================================================
         response = self.client_not_auth.get(
