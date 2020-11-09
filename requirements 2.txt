@@ -1,5 +1,5 @@
 pytest-django==3.8.0
-django==2.2.9
+django==2.2.13
 pillow==7.2.0
 sorl-thumbnail==12.6.3
 django-debug-toolbar==2.2
